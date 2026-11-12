@@ -9,6 +9,7 @@ import {
   List,
   ListItem,
   Row,
+  Separator,
   Spinner,
   Stack,
   Text,
@@ -141,7 +142,7 @@ export default function Panel() {
     : 'No policy: new tabs use the active account. Allow one to start a policy.'
 
   return (
-    <Stack gap="md">
+    <Stack gap="lg">
       <Stack gap="xs">
         <Row justify="between" align="center">
           {/* Orca's display name is often the branch; the folder is what the policy is keyed on. */}
@@ -164,8 +165,9 @@ export default function Panel() {
           <Code>raygent accounts discover</Code>
         </EmptyState>
       ) : (
-        <Stack gap="md">
-          <Stack gap="xs">
+        <Stack gap="lg">
+          <Separator />
+          <Stack gap="sm">
             <Row justify="between" align="center">
               <Text size="xs" weight="semibold" muted>
                 READY
@@ -185,7 +187,8 @@ export default function Panel() {
             )}
           </Stack>
           {limited.length > 0 ? (
-            <Stack gap="xs">
+            <Stack gap="sm">
+              <Separator />
               <Text size="xs" weight="semibold" tone="danger">
                 LIMITED
               </Text>
@@ -197,7 +200,8 @@ export default function Panel() {
             </Stack>
           ) : null}
           {others.length > 0 ? (
-            <Stack gap="xs">
+            <Stack gap="sm">
+              <Separator />
               <Text size="xs" weight="semibold" muted>
                 NOT ALLOWED HERE
               </Text>
@@ -208,10 +212,11 @@ export default function Panel() {
               </List>
             </Stack>
           ) : null}
+          <Separator />
         </Stack>
       )}
 
-      <Stack gap="xs">
+      <Stack gap="sm">
         <Row gap="xs" wrap>
           <Button icon="terminal" tone="accent" disabled={working !== null || !free.some((r) => r.provider === 'claude')} onPress={() => void launch('claude')}>
             {working === 'launch:claude' ? 'Opening…' : 'raygent claude'}
