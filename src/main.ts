@@ -145,7 +145,12 @@ export default function activate(orca: OrcaWorkerApi) {
       tone = 'warning'
     } else {
       const claude = state.rows.filter((r) => r.provider === 'claude')
-      text = state.rows.map((r) => (r.limitedUntil ? `${r.id}⊘` : r.id)).join(' → ')
+      // Orca caps status bar text at 64 chars; without a policy the full
+      // registry would not fit, and "any" is the real message anyway.
+      text = state.hasPolicy
+        ? state.rows.map((r) => (r.limitedUntil ? `${r.id}⊘` : r.id)).join(' → ')
+        : `raygent: any of ${state.rows.length}`
+      if (text.length > 64) text = `${text.slice(0, 63)}…`
       if (claude.length > 0 && claude.every((r) => r.limitedUntil)) tone = 'danger'
       else if (state.rows.some((r) => r.limitedUntil)) tone = 'warning'
       else if (state.hasPolicy) tone = 'accent'
