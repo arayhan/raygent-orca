@@ -38,9 +38,27 @@ export function accountsPath(): string {
 }
 
 // `none` turns the Orca account features off (tests, or a host without the CLI).
+// Inside the plugin worker a bare `orca` finds the Electron binary running as
+// Node, so prefer the CLI shipped beside it.
 function orcaCli(): string | null {
-  const cli = process.env.RAYGENT_ORCA_CLI ?? 'orca'
-  return cli === 'none' ? null : cli
+  const cli = process.env.RAYGENT_ORCA_CLI ?? process.env.ORCA_CLI_COMMAND
+  if (cli === 'none') return null
+  if (cli) return cli
+  const beside = path.join(path.dirname(process.execPath), 'resources', 'bin', process.platform === 'win32' ? 'orca.exe' : 'orca')
+  return fs.existsSync(beside) ? beside : 'orca'
+}
+
+// The worker runs with ELECTRON_RUN_AS_NODE and without APPDATA; a child Orca
+// must not inherit the first and needs the second to find its runtime.
+function cliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  if (process.platform === 'win32') {
+    env.USERPROFILE ??= os.homedir()
+    env.APPDATA ??= path.join(os.homedir(), 'AppData', 'Roaming')
+    env.LOCALAPPDATA ??= path.join(os.homedir(), 'AppData', 'Local')
+  }
+  return env
 }
 
 // Same rule as raygent's normalizePath: policy keys compare case-insensitively on Windows.
@@ -189,7 +207,7 @@ export default function activate(orca: OrcaWorkerApi) {
     const cli = orcaCli()
     if (!cli) return
     try {
-      const { stdout } = await run(cli, ['account', 'list', '--json'], { windowsHide: true })
+      const { stdout } = await run(cli, ['account', 'list', '--json'], { windowsHide: true, env: cliEnv() })
       const parsed = JSON.parse(stdout) as { result?: { claude?: { accounts?: { id: string; home: string }[]; activeAccountId?: string | null } } }
       const claude = parsed.result?.claude
       orcaAccounts = {
@@ -197,7 +215,8 @@ export default function activate(orca: OrcaWorkerApi) {
         activeId: claude?.activeAccountId ?? null,
       }
     } catch (err) {
-      orca.log(`orca account list failed: ${(err as Error).message}`)
+      const e = err as Error & { stderr?: string; stdout?: string; code?: unknown }
+      orca.log(`orca account list failed (${String(e.code)}): ${(e.stderr || e.stdout || e.message).trim().slice(0, 600)}`)
     }
   }
 
@@ -287,7 +306,7 @@ export default function activate(orca: OrcaWorkerApi) {
     await refreshOrcaAccounts()
     const managed = orcaAccounts.accounts.find((o) => normalizePath(o.home) === normalizePath(account.configDir as string))
     if (!managed) throw new Error(`Orca does not manage '${id}' (its config dir is not an Orca profile)`)
-    await run(cli, ['account', 'select', '--agent', 'claude', '--account', managed.id, '--json'], { windowsHide: true })
+    await run(cli, ['account', 'select', '--agent', 'claude', '--account', managed.id, '--json'], { windowsHide: true, env: cliEnv() })
     await publish()
     return { active: id }
   })
