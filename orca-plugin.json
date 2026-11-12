@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "raygent-orca",
   "name": "Raygent Accounts",
-  "version": "0.1.0",
-  "description": "Shows which AI accounts the focused workspace may use (raygent accounts policy), which are rate-limited, and opens a terminal with `raygent claude`.",
+  "version": "0.2.0",
+  "description": "Shows which AI accounts the focused workspace may use (raygent accounts policy), which are rate-limited, picks the account for Claude launches, and switches Orca's active account.",
   "author": { "name": "Ahmed Rayhan Primadedas" },
   "repository": "https://github.com/arayhan/raygent-orca",
   "license": "MIT",
@@ -15,7 +15,8 @@
   "main": "src/main.ts",
   "capabilities": [
     { "kind": "workspace:read" },
-    { "kind": "terminal:send" }
+    { "kind": "terminal:send" },
+    { "kind": "settings:own" }
   ],
   "contributes": {
     "panels": [
@@ -34,7 +35,21 @@
       { "id": "accounts", "text": "raygent", "icon": "agent", "tooltip": "raygent accounts for the focused workspace", "command": "refresh" }
     ],
     "events": [
-      { "on": "workspace.changed" }
+      { "on": "workspace.changed" },
+      { "on": "workspace.created" },
+      { "on": "workspace.removed" }
+    ],
+    "hooks": [
+      { "event": "agent.launch.before" }
+    ],
+    "settings": [
+      {
+        "key": "enforce",
+        "title": "Pick the account per workspace policy",
+        "description": "When Orca starts Claude in a workspace that has a raygent policy, launch it under the first allowed account that is not rate-limited. Off: the policy is only shown.",
+        "type": "boolean",
+        "default": true
+      }
     ]
   }
 }

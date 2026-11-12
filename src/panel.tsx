@@ -20,7 +20,7 @@ import type { AccountsState, LaunchTool } from './protocol'
 
 const state = atom<AccountsState | null>(null)
 const error = atom<string | null>(null)
-const launching = atom<LaunchTool | null>(null)
+const busy = atom<string | null>(null)
 
 export function setup(ctx: PanelContext) {
   ctx.subscriptions.push(plugin.on('accounts.changed', (next) => set(state, next)))
@@ -30,34 +30,35 @@ export function setup(ctx: PanelContext) {
   )
 }
 
-async function launch(tool: LaunchTool) {
-  set(launching, tool)
+async function act(key: string, work: () => Promise<unknown>) {
+  set(busy, key)
+  set(error, null)
   try {
-    await plugin.request('accounts.launch', { tool })
+    await work()
   } catch (err) {
     set(error, (err as Error).message)
   } finally {
-    set(launching, null)
+    set(busy, null)
   }
 }
+
+const launch = (tool: LaunchTool) => act(`launch:${tool}`, () => plugin.request('accounts.launch', { tool }))
+const activate = (id: string) => act(`activate:${id}`, () => plugin.request('accounts.activate', { id }))
 
 export default function Panel() {
   const s = read(state)
   const err = read(error)
-  const busy = read(launching)
+  const working = read(busy)
 
-  if (err) {
-    return <EmptyState title="raygent accounts unavailable" description={err} icon="warning" />
-  }
   if (!s) {
-    return <Spinner label="Reading accounts" />
+    return err ? <EmptyState title="raygent accounts unavailable" description={err} icon="warning" /> : <Spinner label="Reading accounts" />
   }
   if (!s.workspace) {
     return <EmptyState title="No workspace focused" description="Open a workspace to see which accounts it may use." icon="folder" />
   }
 
   const hasGemini = s.rows.some((r) => r.provider === 'gemini')
-  const allowed = s.rows.filter((r) => !r.limitedUntil)
+  const free = s.rows.filter((r) => !r.limitedUntil)
 
   return (
     <Stack gap="md">
@@ -71,6 +72,12 @@ export default function Panel() {
         </Text>
       </Stack>
 
+      {err ? (
+        <Text tone="danger" size="sm">
+          {err}
+        </Text>
+      ) : null}
+
       {s.rows.length === 0 ? (
         <EmptyState
           title="No accounts"
@@ -82,10 +89,16 @@ export default function Panel() {
       ) : (
         <List label={s.hasPolicy ? 'Allowed, in fallback order' : 'Every registered account (no policy)'}>
           {s.rows.map((r) => (
-            <ListItem title={r.id} description={`${r.provider} · ${r.who}`} icon={r.provider === 'claude' ? 'agent' : 'zap'}>
-              <Row gap="xs">
+            <ListItem title={r.id} description={`${r.provider} · ${r.who}`} icon={r.provider === 'claude' ? 'agent' : 'zap'} current={r.active}>
+              <Row gap="xs" align="center" wrap>
+                {r.active ? <Badge tone="accent">active in Orca</Badge> : null}
                 {r.next ? <Badge tone="success">next</Badge> : null}
                 {r.limitedUntil ? <Badge tone="danger">limited until {new Date(r.limitedUntil).toLocaleString()}</Badge> : null}
+                {r.selectable && !r.active ? (
+                  <Button size="sm" variant="ghost" icon="check" disabled={working !== null} onPress={() => void activate(r.id)}>
+                    {working === `activate:${r.id}` ? 'Switching…' : 'Make active'}
+                  </Button>
+                ) : null}
               </Row>
             </ListItem>
           ))}
@@ -96,25 +109,25 @@ export default function Panel() {
         <Button
           icon="terminal"
           tone="accent"
-          disabled={busy !== null || !allowed.some((r) => r.provider === 'claude')}
+          disabled={working !== null || !free.some((r) => r.provider === 'claude')}
           onPress={() => void launch('claude')}
         >
-          {busy === 'claude' ? 'Opening…' : 'Open terminal: raygent claude'}
+          {working === 'launch:claude' ? 'Opening…' : 'Open terminal: raygent claude'}
         </Button>
         {hasGemini ? (
-          <Button
-            icon="terminal"
-            variant="ghost"
-            disabled={busy !== null || !allowed.some((r) => r.provider === 'gemini')}
-            onPress={() => void launch('gemini')}
-          >
-            {busy === 'gemini' ? 'Opening…' : 'raygent gemini'}
+          <Button icon="terminal" variant="ghost" disabled={working !== null || !free.some((r) => r.provider === 'gemini')} onPress={() => void launch('gemini')}>
+            {working === 'launch:gemini' ? 'Opening…' : 'raygent gemini'}
           </Button>
         ) : null}
       </Row>
 
       <Text muted size="xs">
-        Change with <Code>raygent accounts allow &lt;id…&gt;</Code> or <Code>raygent accounts limit &lt;id&gt;</Code> in this workspace. Source: {s.file}
+        {s.hasPolicy
+          ? s.enforce
+            ? 'New Claude tabs in this workspace launch under the "next" account.'
+            : 'Enforcement is off in Settings: new tabs use the Orca-active account.'
+          : 'No policy: new tabs use the Orca-active account.'}{' '}
+        Change with <Code>raygent accounts allow &lt;id…&gt;</Code> or <Code>raygent accounts limit &lt;id&gt;</Code>. Source: {s.file}
       </Text>
     </Stack>
   )

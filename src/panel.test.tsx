@@ -6,23 +6,27 @@ import * as panel from './panel'
 const state: AccountsState = {
   workspace: { id: 'w1', name: 'raygent', path: 'D:\\code\\raygent' },
   hasPolicy: true,
+  enforce: true,
   rows: [
-    { id: 'personal', provider: 'claude', who: 'r***@gmail.com', limitedUntil: '2026-11-12T12:30:00.000Z', next: false },
-    { id: 'sendtrack', provider: 'claude', who: 's***@gmail.com', limitedUntil: null, next: true },
-    { id: 'gemini', provider: 'gemini', who: 'GEMINI_API_KEY', limitedUntil: null, next: true },
+    { id: 'personal', provider: 'claude', who: 'r***@gmail.com', limitedUntil: '2026-11-12T12:30:00.000Z', next: false, active: true, selectable: true },
+    { id: 'sendtrack', provider: 'claude', who: 's***@gmail.com', limitedUntil: null, next: true, active: false, selectable: true },
+    { id: 'gemini', provider: 'gemini', who: 'GEMINI_API_KEY', limitedUntil: null, next: true, active: false, selectable: false },
   ],
   file: 'C:\\Users\\me\\.raygent\\accounts.json',
   error: null,
 }
 
-test('lists the policy with next and limited badges', async () => {
+test('lists the policy with active, next and limited badges', async () => {
   const host = mockHost({ requests: { 'accounts.state': state } })
   const view = await mount(panel, { host })
   assert.ok(view.find({ text: 'raygent' }), 'workspace name')
   assert.ok(view.find({ text: 'policy' }), 'policy badge')
   assert.ok(view.find({ label: 'personal' }), 'first row')
+  assert.ok(view.find({ text: 'active in Orca' }), 'active badge')
   assert.ok(view.find({ text: 'next' }), 'next badge on the first free account')
   assert.ok(view.find({ text: /limited until/ }), 'limited badge')
+  // one Make active button: sendtrack (personal is active, gemini is not an Orca account)
+  assert.equal(view.findAll({ text: 'Make active' }).length, 1)
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
@@ -43,6 +47,42 @@ test('launch button asks the worker for a terminal', async () => {
   await view.settled()
   assert.deepEqual(launched, { tool: 'claude' })
   assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('Make active asks the worker to select that account', async () => {
+  let activated: unknown
+  const host = mockHost({
+    requests: {
+      'accounts.state': state,
+      'accounts.activate': (input) => {
+        activated = input
+        return { active: input.id }
+      },
+    },
+  })
+  const view = await mount(panel, { host })
+  await view.press({ text: 'Make active' })
+  await view.settled()
+  assert.deepEqual(activated, { id: 'sendtrack' })
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a failed activate shows the reason and keeps the list', async () => {
+  const host = mockHost({
+    requests: {
+      'accounts.state': state,
+      'accounts.activate': () => {
+        throw new Error('the orca CLI is not available here')
+      },
+    },
+  })
+  const view = await mount(panel, { host })
+  await view.press({ text: 'Make active' })
+  await view.settled()
+  assert.ok(view.find({ text: /orca CLI is not available/ }))
+  assert.ok(view.find({ label: 'personal' }))
   await view.unmount()
 })
 
