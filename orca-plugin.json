@@ -1,0 +1,40 @@
+{
+  "manifestVersion": 2,
+  "id": "raygent-orca",
+  "name": "Raygent Accounts",
+  "version": "0.1.0",
+  "description": "Shows which AI accounts the focused workspace may use (raygent accounts policy), which are rate-limited, and opens a terminal with `raygent claude`.",
+  "author": { "name": "Ahmed Rayhan Primadedas" },
+  "repository": "https://github.com/arayhan/raygent-orca",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/main.ts",
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "terminal:send" }
+  ],
+  "contributes": {
+    "panels": [
+      {
+        "id": "accounts",
+        "title": "Raygent Accounts",
+        "icon": "agent",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      { "id": "refresh", "title": "Raygent: refresh account policy", "when": "global" }
+    ],
+    "statusBarItems": [
+      { "id": "accounts", "text": "raygent", "icon": "agent", "tooltip": "raygent accounts for the focused workspace", "command": "refresh" }
+    ],
+    "events": [
+      { "on": "workspace.changed" }
+    ]
+  }
+}
