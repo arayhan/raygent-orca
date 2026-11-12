@@ -230,19 +230,21 @@ export default function activate(orca: OrcaWorkerApi) {
     for (const w of workspaces) workspacePaths.set(w.id, w.path)
   }
 
-  // Orca's CLI knows which worktree is active; the host API does not say
-  // (readContext has no path, and a worktree's display name is usually just
-  // its branch, so every `main` looks alike). Folder workspaces have no
-  // worktree, so the name match stays as the fallback.
-  async function activeWorktree(): Promise<Workspace | null> {
+  // readContext has no path, and a worktree's display name is usually just its
+  // branch, so every `main` looks alike. Its terminal ids are unique though,
+  // and `orca terminal list` knows which worktree each terminal belongs to.
+  async function workspaceOfTerminals(terminalIds: string[]): Promise<Workspace | null> {
     const cli = orcaCli()
-    if (!cli) return null
+    if (!cli || terminalIds.length === 0) return null
     try {
-      const { stdout } = await run(cli, ['worktree', 'show', '--worktree', 'active', '--json'], { windowsHide: true, env: cliEnv() })
-      const parsed = JSON.parse(stdout) as { result?: { worktree?: { id?: string; path?: string; displayName?: string } } }
-      const w = parsed.result?.worktree
-      return w && typeof w.id === 'string' && typeof w.path === 'string' ? { id: w.id, name: w.displayName ?? w.id, path: w.path } : null
-    } catch {
+      const { stdout } = await run(cli, ['terminal', 'list', '--json'], { windowsHide: true, env: cliEnv() })
+      const parsed = JSON.parse(stdout) as { result?: { terminals?: { handle?: string; worktreeId?: string; worktreePath?: string }[] } }
+      const wanted = new Set(terminalIds)
+      const hit = (parsed.result?.terminals ?? []).find((t) => t.handle && wanted.has(t.handle) && t.worktreeId && t.worktreePath)
+      return hit ? { id: hit.worktreeId as string, name: path.basename(hit.worktreePath as string), path: hit.worktreePath as string } : null
+    } catch (err) {
+      const e = err as Error & { stderr?: string; stdout?: string }
+      orca.log(`terminal list failed: ${(e.stderr || e.stdout || e.message).trim().slice(0, 300)}`)
       return null
     }
   }
@@ -253,8 +255,10 @@ export default function activate(orca: OrcaWorkerApi) {
     const { workspaces } = await orca.host.call('workspace.list')
     workspacePaths.clear()
     for (const w of workspaces) workspacePaths.set(w.id, w.path)
-    const active = await activeWorktree()
-    if (active) return active
+    const byTerminal = await workspaceOfTerminals(ctx.terminals.map((t) => t.id))
+    orca.log(`focus: displayName=${ctx.displayName} branch=${ctx.branch} terminals=${ctx.terminals.map((t) => t.id).join(',') || 'none'} -> ${byTerminal?.path ?? 'no terminal match'}`)
+    if (byTerminal) return byTerminal
+    // No terminal open yet (or a folder workspace): fall back to the name.
     const byName = workspaces.filter((w) => w.name === ctx.displayName)
     const match = byName.find((w) => !ctx.branch || !w.branch || w.branch === ctx.branch) ?? byName[0]
     return match ? { id: match.id, name: match.name, path: match.path } : null
