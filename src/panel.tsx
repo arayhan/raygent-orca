@@ -164,29 +164,49 @@ export default function Panel() {
           <Code>raygent accounts discover</Code>
         </EmptyState>
       ) : (
-        <Stack gap="sm">
-          {free.length > 0 ? (
-            <List label={s.hasPolicy ? 'Ready, in fallback order' : 'Ready (no policy: any of these)'}>
-              {free.map((r) => (
-                <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
-              ))}
-            </List>
-          ) : (
-            <EmptyState title="Nothing ready" description="Every allowed account is rate-limited; the next launch uses the first one anyway." icon="warning" />
-          )}
+        <Stack gap="md">
+          <Stack gap="xs">
+            <Row justify="between" align="center">
+              <Text size="xs" weight="semibold" muted>
+                READY
+              </Text>
+              <Text size="xs" muted>
+                {s.hasPolicy ? 'fallback order' : 'no policy: any of these'}
+              </Text>
+            </Row>
+            {free.length > 0 ? (
+              <List label={s.hasPolicy ? 'Ready, in fallback order' : 'Ready (no policy: any of these)'}>
+                {free.map((r) => (
+                  <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
+                ))}
+              </List>
+            ) : (
+              <EmptyState title="Nothing ready" description="Every allowed account is rate-limited; the next launch uses the first one anyway." icon="warning" />
+            )}
+          </Stack>
           {limited.length > 0 ? (
-            <List label="Limited, until reset">
-              {limited.map((r) => (
-                <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
-              ))}
-            </List>
+            <Stack gap="xs">
+              <Text size="xs" weight="semibold" tone="danger">
+                LIMITED
+              </Text>
+              <List label="Limited, until reset">
+                {limited.map((r) => (
+                  <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
+                ))}
+              </List>
+            </Stack>
           ) : null}
           {others.length > 0 ? (
-            <List label="Not allowed here">
-              {others.map((r) => (
-                <AccountItem r={r} s={s} working={working} first={false} />
-              ))}
-            </List>
+            <Stack gap="xs">
+              <Text size="xs" weight="semibold" muted>
+                NOT ALLOWED HERE
+              </Text>
+              <List label="Not allowed here">
+                {others.map((r) => (
+                  <AccountItem r={r} s={s} working={working} first={false} />
+                ))}
+              </List>
+            </Stack>
           ) : null}
         </Stack>
       )}
