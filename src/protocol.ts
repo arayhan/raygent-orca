@@ -13,6 +13,8 @@ export interface AccountRow {
   active: boolean
   /** Whether "Make active" can target it (a Claude account Orca manages). */
   selectable: boolean
+  /** In the project's policy (or no policy: every account is allowed). */
+  allowed: boolean
 }
 
 export interface AccountsState {
@@ -34,6 +36,8 @@ declare module 'orca' {
     'accounts.state': { input: { refresh?: boolean }; output: AccountsState }
     'accounts.launch': { input: { tool: LaunchTool }; output: { terminalId: string } }
     'accounts.activate': { input: { id: string }; output: { active: string } }
+    /** Replaces the focused workspace's policy; an empty list removes it. */
+    'accounts.setPolicy': { input: { ids: string[] }; output: AccountsState }
   }
   interface PluginPanelEvents {
     'accounts.changed': AccountsState

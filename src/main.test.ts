@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as worker from './main'
-import { computeRows, launchAccount, readAccountsFile, rewriteLaunchCommand, workspacePathFromId } from './main'
+import { computeRows, launchAccount, readAccountsFile, rewriteLaunchCommand, workspacePathFromId, writePolicy } from './main'
 
 const project = path.join(os.tmpdir(), 'raygent-orca-project')
 
@@ -43,19 +43,51 @@ test('computeRows follows the policy order, marks next, active and selectable', 
   const r = computeRows(withPolicy as never, project.toUpperCase(), orcaState)
   if (process.platform === 'win32') {
     assert.equal(r.hasPolicy, true)
+    // allowed first in policy order, then the rest; next only among the allowed
     assert.deepEqual(
-      r.rows.map((x) => [x.id, x.next, x.limitedUntil !== null, x.active, x.selectable]),
+      r.rows.map((x) => [x.id, x.allowed, x.next, x.limitedUntil !== null, x.active, x.selectable]),
       [
-        ['personal', false, true, false, false],
-        ['backup', true, false, true, true],
+        ['personal', true, false, true, false, false],
+        ['backup', true, true, false, true, true],
+        ['office', false, false, false, false, false],
+        ['gemini', false, false, false, false, false],
       ]
     )
   }
   const none = computeRows(registry as never, 'D:\\elsewhere', noOrca)
   assert.equal(none.hasPolicy, false)
   assert.equal(none.rows.length, 4)
+  assert.ok(none.rows.every((x) => x.allowed))
   assert.deepEqual(none.rows.filter((x) => x.next).map((x) => x.id), ['office', 'gemini'])
   assert.ok(none.rows.every((x) => !x.active && !x.selectable))
+})
+
+test('writePolicy edits only projects and refuses unknown ids or a corrupt file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'raygent-orca-policy-'))
+  const file = path.join(dir, 'accounts.json')
+  try {
+    fs.writeFileSync(file, JSON.stringify({ accounts: registry.accounts, extra: { keep: 1 }, projects: { other: ['office'] } }))
+    writePolicy(file, project, ['backup', 'personal', 'backup'])
+    const after = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.deepEqual(after.projects, { other: ['office'], [policyKey]: ['backup', 'personal'] })
+    assert.deepEqual(after.extra, { keep: 1 })
+    assert.equal(after.accounts.length, 4)
+
+    writePolicy(file, project, [])
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).projects, { other: ['office'] })
+
+    assert.throws(() => writePolicy(file, project, ['nope']), /unknown account: nope/)
+
+    fs.writeFileSync(file, '{not json')
+    assert.throws(() => writePolicy(file, project, ['backup']), /refusing to rewrite/)
+    assert.equal(fs.readFileSync(file, 'utf8'), '{not json')
+
+    const fresh = path.join(dir, 'new', 'accounts.json')
+    writePolicy(fresh, project, [])
+    assert.deepEqual(JSON.parse(fs.readFileSync(fresh, 'utf8')), { projects: {} })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('launchAccount skips limited accounts and falls back to the first one', () => {
@@ -96,11 +128,16 @@ test('the worker answers accounts.state, updates the status bar, and sets CLAUDE
       },
     })
     const w = await mountWorker(worker, { host, events: ['workspace.changed', 'workspace.created', 'workspace.removed'], commands: ['refresh'], hooks: ['agent.launch.before'] })
-    const state = (await w.request('accounts.state', {})) as { workspace: { id: string } | null; hasPolicy: boolean; enforce: boolean; rows: { id: string }[] }
+    const state = (await w.request('accounts.state', {})) as { workspace: { id: string } | null; hasPolicy: boolean; enforce: boolean; rows: { id: string; allowed: boolean }[] }
     assert.equal(state.workspace?.id, 'w1')
     assert.equal(state.hasPolicy, true)
     assert.equal(state.enforce, true)
-    assert.deepEqual(state.rows.map((r) => r.id), ['personal', 'backup'])
+    assert.deepEqual(state.rows.map((r) => `${r.id}${r.allowed ? '' : '!'}`), ['personal', 'backup', 'office!', 'gemini!'])
+
+    const edited = (await w.request('accounts.setPolicy', { ids: ['office'] })) as { hasPolicy: boolean; rows: { id: string; allowed: boolean }[] }
+    assert.deepEqual(edited.rows.filter((r) => r.allowed).map((r) => r.id), ['office'])
+    assert.deepEqual(JSON.parse(fs.readFileSync(process.env.RAYGENT_ACCOUNTS_FILE as string, 'utf8')).projects, { [policyKey]: ['office'] })
+    await w.request('accounts.setPolicy', { ids: ['personal', 'backup'] })
 
     const bar = host.callsOf('statusBar.update').at(-1) as { text: string; tone: string }
     assert.equal(bar.text, 'personal⊘ → backup')

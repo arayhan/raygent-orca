@@ -151,18 +151,21 @@ interface OrcaClaudeAccount {
   home: string
 }
 
+/** Every registered account: the allowed ones first, in policy order, then the rest. */
 export function computeRows(
   file: AccountsFile,
   projectPath: string | null,
   orca: { accounts: OrcaClaudeAccount[]; activeId: string | null },
   now = Date.now()
 ): { hasPolicy: boolean; rows: AccountRow[] } {
-  const { policy, accounts } = allowedAccounts(file, projectPath)
+  const { policy, accounts: allowed } = allowedAccounts(file, projectPath)
+  const rest = file.accounts.filter((a) => !allowed.includes(a))
   const nextByProvider = new Set<string>()
-  const rows = accounts.map((a) => {
+  const rows = [...allowed, ...rest].map((a) => {
+    const isAllowed = allowed.includes(a)
     const limited = isLimited(a, now)
     let next = false
-    if (!limited && !nextByProvider.has(a.provider)) {
+    if (isAllowed && !limited && !nextByProvider.has(a.provider)) {
       nextByProvider.add(a.provider)
       next = true
     }
@@ -175,9 +178,32 @@ export function computeRows(
       next,
       active: managed !== undefined && managed.id === orca.activeId,
       selectable: managed !== undefined,
+      allowed: isAllowed,
     }
   })
   return { hasPolicy: policy !== undefined, rows }
+}
+
+// Edits only `projects` in the raw JSON, so accounts the CLI wrote (even ones
+// this plugin does not understand) survive untouched. A corrupt file is left alone.
+export function writePolicy(file: string, projectPath: string, ids: string[]): void {
+  let raw: Record<string, unknown> = {}
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`refusing to rewrite ${file}: ${(err as Error).message}`)
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`refusing to rewrite ${file}: not a JSON object`)
+  const known = new Set(readAccountsFile(file).accounts.map((a) => a.id))
+  const unknown = ids.filter((id) => !known.has(id))
+  if (unknown.length > 0) throw new Error(`unknown account: ${unknown.join(', ')}`)
+  const projects = (raw.projects && typeof raw.projects === 'object' && !Array.isArray(raw.projects) ? raw.projects : {}) as Record<string, string[]>
+  const key = normalizePath(projectPath)
+  if (ids.length === 0) delete projects[key]
+  else projects[key] = [...new Set(ids)]
+  raw.projects = projects
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(raw, null, 2) + '\n')
 }
 
 type Workspace = { id: string; name: string; path: string }
@@ -263,15 +289,16 @@ export default function activate(orca: OrcaWorkerApi) {
       text = 'raygent: no accounts'
       tone = 'warning'
     } else {
-      const claude = state.rows.filter((r) => r.provider === 'claude')
+      const allowed = state.rows.filter((r) => r.allowed)
+      const claude = allowed.filter((r) => r.provider === 'claude')
       // Orca caps status bar text at 64 chars; without a policy the full
       // registry would not fit, and "any" is the real message anyway.
       text = state.hasPolicy
-        ? state.rows.map((r) => (r.limitedUntil ? `${r.id}⊘` : r.id)).join(' → ')
+        ? allowed.map((r) => (r.limitedUntil ? `${r.id}⊘` : r.id)).join(' → ')
         : `raygent: any of ${state.rows.length}`
       if (text.length > 64) text = `${text.slice(0, 63)}…`
       if (claude.length > 0 && claude.every((r) => r.limitedUntil)) tone = 'danger'
-      else if (state.rows.some((r) => r.limitedUntil)) tone = 'warning'
+      else if (allowed.some((r) => r.limitedUntil)) tone = 'warning'
       else if (state.hasPolicy) tone = 'accent'
     }
     const tooltip = state.workspace
@@ -325,6 +352,15 @@ export default function activate(orca: OrcaWorkerApi) {
     return { active: id }
   })
 
+  orca.panels.handle('accounts.setPolicy', async ({ ids }: { ids: string[] }) => {
+    if (!workspace) {
+      workspace = await focusedWorkspace()
+      if (!workspace) throw new Error('no focused workspace')
+    }
+    writePolicy(accountsPath(), workspace.path, ids)
+    return publish()
+  })
+
   orca.hooks.on('agent.launch.before', (event, next) => {
     const projectPath = event.workspaceId ? (workspacePaths.get(event.workspaceId) ?? workspacePathFromId(event.workspaceId)) : undefined
     if (event.agent !== 'claude' || !enforce || !projectPath) return
@@ -337,7 +373,8 @@ export default function activate(orca: OrcaWorkerApi) {
 
   orca.commands.register('refresh', async () => {
     const state = await publish()
-    return state.rows.length ? state.rows.map((r) => r.id).join(' → ') : 'no accounts registered (raygent accounts discover)'
+    const allowed = state.rows.filter((r) => r.allowed)
+    return allowed.length ? allowed.map((r) => r.id).join(' → ') : 'no accounts registered (raygent accounts discover)'
   })
 
   orca.events.on('workspace.changed', () => {

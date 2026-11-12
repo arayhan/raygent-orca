@@ -4,6 +4,10 @@ An [Orca](https://orca.app) plugin for the [raygent](https://github.com/arayhan/
 
 The plugin reads `~/.raygent/accounts.json`, the file the raygent CLI maintains. It never sees a token: a Claude account is a `CLAUDE_CONFIG_DIR` folder that is already logged in, a Gemini account is the name of an env var.
 
+## Editing the policy
+
+The panel lists every registered account: the allowed ones first, in fallback order, then the rest. *Allow* adds one at the end, *Remove* drops it, the arrow moves it up, *Clear policy* lets the project use any account again. On a project without a policy, *Allow only this* starts one. It writes the same `projects` entry `raygent accounts allow …` does, and nothing else in the file.
+
 ## Switching accounts
 
 Two ways, both in the panel:
