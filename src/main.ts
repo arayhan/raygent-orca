@@ -230,14 +230,31 @@ export default function activate(orca: OrcaWorkerApi) {
     for (const w of workspaces) workspacePaths.set(w.id, w.path)
   }
 
-  // readContext has no path or id, so the focused workspace is matched against
-  // workspace.list by display name (and branch when both sides have one).
+  // Orca's CLI knows which worktree is active; the host API does not say
+  // (readContext has no path, and a worktree's display name is usually just
+  // its branch, so every `main` looks alike). Folder workspaces have no
+  // worktree, so the name match stays as the fallback.
+  async function activeWorktree(): Promise<Workspace | null> {
+    const cli = orcaCli()
+    if (!cli) return null
+    try {
+      const { stdout } = await run(cli, ['worktree', 'show', '--worktree', 'active', '--json'], { windowsHide: true, env: cliEnv() })
+      const parsed = JSON.parse(stdout) as { result?: { worktree?: { id?: string; path?: string; displayName?: string } } }
+      const w = parsed.result?.worktree
+      return w && typeof w.id === 'string' && typeof w.path === 'string' ? { id: w.id, name: w.displayName ?? w.id, path: w.path } : null
+    } catch {
+      return null
+    }
+  }
+
   async function focusedWorkspace(): Promise<Workspace | null> {
     const ctx = await orca.host.call('workspace.readContext')
     if (!ctx) return null
     const { workspaces } = await orca.host.call('workspace.list')
     workspacePaths.clear()
     for (const w of workspaces) workspacePaths.set(w.id, w.path)
+    const active = await activeWorktree()
+    if (active) return active
     const byName = workspaces.filter((w) => w.name === ctx.displayName)
     const match = byName.find((w) => !ctx.branch || !w.branch || w.branch === ctx.branch) ?? byName[0]
     return match ? { id: match.id, name: match.name, path: match.path } : null
