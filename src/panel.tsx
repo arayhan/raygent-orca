@@ -131,6 +131,8 @@ export default function Panel() {
   const allowed = s.rows.filter((r) => r.allowed)
   const others = s.rows.filter((r) => !r.allowed)
   const free = allowed.filter((r) => !r.limitedUntil)
+  const limited = allowed.filter((r) => r.limitedUntil)
+  const firstAllowed = allowed[0]?.id
   const hasGemini = allowed.some((r) => r.provider === 'gemini')
   const launchHint = s.hasPolicy
     ? s.enforce
@@ -163,11 +165,22 @@ export default function Panel() {
         </EmptyState>
       ) : (
         <Stack gap="sm">
-          <List label={s.hasPolicy ? 'Allowed, in fallback order' : 'Every registered account'}>
-            {allowed.map((r, i) => (
-              <AccountItem r={r} s={s} working={working} first={i === 0} />
-            ))}
-          </List>
+          {free.length > 0 ? (
+            <List label={s.hasPolicy ? 'Ready, in fallback order' : 'Ready (no policy: any of these)'}>
+              {free.map((r) => (
+                <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
+              ))}
+            </List>
+          ) : (
+            <EmptyState title="Nothing ready" description="Every allowed account is rate-limited; the next launch uses the first one anyway." icon="warning" />
+          )}
+          {limited.length > 0 ? (
+            <List label="Limited, until reset">
+              {limited.map((r) => (
+                <AccountItem r={r} s={s} working={working} first={r.id === firstAllowed} />
+              ))}
+            </List>
+          ) : null}
           {others.length > 0 ? (
             <List label="Not allowed here">
               {others.map((r) => (

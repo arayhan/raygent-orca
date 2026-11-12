@@ -27,6 +27,8 @@ test('lists allowed and not-allowed accounts with their badges and buttons', asy
   assert.ok(view.find({ text: 'active' }), 'active badge')
   assert.ok(view.find({ text: 'next' }), 'next badge on the first free allowed account')
   assert.ok(view.find({ text: /^limited · / }), 'limited badge')
+  assert.ok(view.find({ label: 'Limited, until reset' }), 'limited accounts get their own list')
+  assert.ok(view.find({ label: 'Ready, in fallback order' }), 'ready accounts get their own list')
   assert.equal(view.findAll({ label: /^Remove / }).length, 2, 'one Remove per allowed row')
   assert.equal(view.findAll({ label: /^Allow / }).length, 2, 'one Allow per not-allowed row')
   assert.equal(view.findAll({ label: /^Move .* up$/ }).length, 1, 'the first allowed row cannot move up')
