@@ -8,7 +8,7 @@ The plugin reads `~/.raygent/accounts.json`, the file the raygent CLI maintains.
 
 Two ways, both in the panel:
 
-- **Per launch, automatic.** When Orca starts Claude in a workspace that has a policy, the plugin's `agent.launch.before` hook sets `CLAUDE_CONFIG_DIR` to the first allowed account that is not rate-limited (the row marked `next`). If every allowed account is limited it still launches, on the first one, and Claude shows its own limit message. The setting *Pick the account per workspace policy* turns this off; then the policy is only shown.
+- **Per launch, automatic.** When Orca starts Claude in a workspace that has a policy, the plugin's `agent.launch.before` hook rewrites the launch to `raygent claude --account <id> …` for the first allowed account that is not rate-limited (the row marked `next`), whatever account is active in Orca. If every allowed account is limited it still launches, on the first one, and Claude shows its own limit message. The setting *Pick the account per workspace policy* turns this off; then the policy is only shown. Orca keeps treating the tab as a Claude agent.
 - **Make active.** The button on a row runs `orca account select --agent claude --account <id>`, so Orca's own active account changes for every later launch, in any workspace. Only accounts Orca manages (its profiles) get the button.
 
 A Claude session that is already open keeps its account. Switching means a new tab; `--continue` only finds sessions inside the same account folder.

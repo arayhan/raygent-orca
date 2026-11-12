@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as worker from './main'
-import { computeRows, launchConfigDir, readAccountsFile } from './main'
+import { computeRows, launchAccount, readAccountsFile, rewriteLaunchCommand, workspacePathFromId } from './main'
 
 const project = path.join(os.tmpdir(), 'raygent-orca-project')
 
@@ -58,17 +58,26 @@ test('computeRows follows the policy order, marks next, active and selectable', 
   assert.ok(none.rows.every((x) => !x.active && !x.selectable))
 })
 
-test('launchConfigDir skips limited accounts and falls back to the first one', () => {
+test('launchAccount skips limited accounts and falls back to the first one', () => {
   const file = { ...registry, projects: { [policyKey]: ['personal', 'backup'] } } as never
-  assert.equal(launchConfigDir(file, project), 'C:\\b')
+  assert.deepEqual(launchAccount(file, project), { id: 'backup', configDir: 'C:\\b' })
   const allLimited = {
     ...registry,
     accounts: registry.accounts.map((a) => (a.provider === 'claude' ? { ...a, limitedUntil: '2999-01-01T00:00:00.000Z' } : a)),
     projects: { [policyKey]: ['personal', 'backup'] },
   } as never
-  assert.equal(launchConfigDir(allLimited, project), 'C:\\p')
-  assert.equal(launchConfigDir(registry as never, project), null, 'no policy: leave the launch alone')
-  assert.equal(launchConfigDir({ ...registry, projects: { [policyKey]: ['gemini'] } } as never, project), null)
+  assert.deepEqual(launchAccount(allLimited, project), { id: 'personal', configDir: 'C:\\p' })
+  assert.equal(launchAccount(registry as never, project), null, 'no policy: leave the launch alone')
+  assert.equal(launchAccount({ ...registry, projects: { [policyKey]: ['gemini'] } } as never, project), null)
+})
+
+test('launch helpers read Orca ids and rewrite only claude commands', () => {
+  assert.equal(workspacePathFromId('5a57::D:/code/raygent'), 'D:/code/raygent')
+  assert.equal(workspacePathFromId('folder-id'), undefined)
+  assert.equal(rewriteLaunchCommand("claude '--dangerously-skip-permissions'", 'backup'), "raygent claude --account backup '--dangerously-skip-permissions'")
+  assert.equal(rewriteLaunchCommand('claude', 'backup'), 'raygent claude --account backup')
+  assert.equal(rewriteLaunchCommand('codex --full-auto', 'backup'), 'codex --full-auto')
+  assert.equal(rewriteLaunchCommand('claude-foo', 'backup'), 'claude-foo')
 })
 
 test('the worker answers accounts.state, updates the status bar, and sets CLAUDE_CONFIG_DIR on launch', () =>
@@ -101,6 +110,11 @@ test('the worker answers accounts.state, updates the status bar, and sets CLAUDE
     const decision = await w.hooks.fire('agent.launch.before', launch)
     assert.equal(decision.kind, 'continue')
     assert.deepEqual(envOf(decision), { FOO: '1', CLAUDE_CONFIG_DIR: 'C:\\b' })
+    assert.equal((decision as { event: { command: string } }).event.command, 'raygent claude --account backup')
+
+    // Orca's real ids carry the path after `::`, even when the cache has not seen them
+    const byId = await w.hooks.fire('agent.launch.before', { ...launch, workspaceId: `repo::${project}` })
+    assert.deepEqual(envOf(byId), { FOO: '1', CLAUDE_CONFIG_DIR: 'C:\\b' })
 
     const other = await w.hooks.fire('agent.launch.before', { ...launch, agent: 'codex' })
     assert.deepEqual(envOf(other), { FOO: '1' }, 'other agents pass unchanged')

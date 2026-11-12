@@ -122,14 +122,28 @@ export function allowedAccounts(file: AccountsFile, projectPath: string | null):
 }
 
 /** What a Claude launch in this project should run under, or null without a policy. */
-export function launchConfigDir(file: AccountsFile, projectPath: string, now = Date.now()): string | null {
+export function launchAccount(file: AccountsFile, projectPath: string, now = Date.now()): { id: string; configDir: string } | null {
   const { policy, accounts } = allowedAccounts(file, projectPath)
   if (!policy) return null
   const claude = accounts.filter((a) => a.provider === 'claude' && a.configDir)
   // Every allowed account limited: still launch, on the first one, and let
   // Claude show its own limit message. The user chose never to block a launch.
   const pick = claude.find((a) => !isLimited(a, now)) ?? claude[0]
-  return pick?.configDir ?? null
+  return pick ? { id: pick.id, configDir: pick.configDir as string } : null
+}
+
+// Orca's launch hook names the workspace as `<repoId>::<path>` for worktrees.
+export function workspacePathFromId(workspaceId: string): string | undefined {
+  const sep = workspaceId.indexOf('::')
+  return sep >= 0 ? workspaceId.slice(sep + 2) : undefined
+}
+
+// Orca injects its own CLAUDE_CONFIG_DIR around the hook, so an env change
+// alone may lose. `raygent claude --account <id>` sets the dir itself and
+// execs claude with the original arguments, whatever the terminal's shell.
+export function rewriteLaunchCommand(command: string, accountId: string): string {
+  const match = /^\s*claude(\s.*|)$/s.exec(command)
+  return match ? `raygent claude --account ${accountId}${match[1]}` : command
 }
 
 interface OrcaClaudeAccount {
@@ -312,13 +326,13 @@ export default function activate(orca: OrcaWorkerApi) {
   })
 
   orca.hooks.on('agent.launch.before', (event, next) => {
-    if (event.agent !== 'claude' || !enforce || !event.workspaceId) return
-    const projectPath = workspacePaths.get(event.workspaceId)
-    if (!projectPath) return
-    const configDir = launchConfigDir(readAccountsFile(accountsPath()), projectPath)
-    if (!configDir) return
-    orca.log(`launch in ${projectPath}: CLAUDE_CONFIG_DIR=${configDir}`)
-    return next({ ...event, env: { ...event.env, CLAUDE_CONFIG_DIR: configDir } })
+    const projectPath = event.workspaceId ? (workspacePaths.get(event.workspaceId) ?? workspacePathFromId(event.workspaceId)) : undefined
+    if (event.agent !== 'claude' || !enforce || !projectPath) return
+    const pick = launchAccount(readAccountsFile(accountsPath()), projectPath)
+    if (!pick) return
+    const command = rewriteLaunchCommand(event.command, pick.id)
+    orca.log(`launch in ${projectPath}: ${pick.id} (${pick.configDir}); command: ${command}`)
+    return next({ ...event, command, env: { ...event.env, CLAUDE_CONFIG_DIR: pick.configDir } })
   })
 
   orca.commands.register('refresh', async () => {
