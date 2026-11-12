@@ -24,13 +24,14 @@ test('lists allowed and not-allowed accounts with their badges and buttons', asy
   assert.ok(view.find({ text: 'policy' }), 'policy badge')
   assert.ok(view.find({ label: 'personal' }), 'allowed row')
   assert.ok(view.find({ label: 'office' }), 'not-allowed row is still listed')
-  assert.ok(view.find({ text: 'active in Orca' }), 'active badge')
+  assert.ok(view.find({ text: 'active' }), 'active badge')
   assert.ok(view.find({ text: 'next' }), 'next badge on the first free allowed account')
-  assert.ok(view.find({ text: /limited until/ }), 'limited badge')
-  assert.equal(view.findAll({ text: 'Remove' }).length, 2, 'one Remove per allowed row')
-  assert.equal(view.findAll({ text: 'Allow' }).length, 2, 'one Allow per not-allowed row')
+  assert.ok(view.find({ text: /^limited · / }), 'limited badge')
+  assert.equal(view.findAll({ label: /^Remove / }).length, 2, 'one Remove per allowed row')
+  assert.equal(view.findAll({ label: /^Allow / }).length, 2, 'one Allow per not-allowed row')
+  assert.equal(view.findAll({ label: /^Move .* up$/ }).length, 1, 'the first allowed row cannot move up')
   // Make active: sendtrack and office (personal is active, gemini is not an Orca account)
-  assert.equal(view.findAll({ text: 'Make active' }).length, 2)
+  assert.equal(view.findAll({ label: /^Make .* active$/ }).length, 2)
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
@@ -47,13 +48,13 @@ test('Allow, Remove, move up and Clear send the new policy to the worker', async
     },
   })
   const view = await mount(panel, { host })
-  await view.press({ text: 'Allow' }) // first not-allowed row: office
+  await view.press({ label: 'Allow office' })
   await view.settled()
-  await view.press({ text: 'Remove' }) // first allowed row: personal
+  await view.press({ label: 'Remove personal' })
   await view.settled()
   await view.press({ label: 'Move sendtrack up' })
   await view.settled()
-  await view.press({ text: /Clear policy/ })
+  await view.press({ text: 'Clear policy' })
   await view.settled()
   assert.deepEqual(sent, [
     ['personal', 'sendtrack', 'office'],
@@ -78,8 +79,9 @@ test('without a policy, Allow starts one with just that account', async () => {
     },
   })
   const view = await mount(panel, { host })
-  assert.equal(view.findAll({ text: 'Remove' }).length, 0)
-  await view.press({ text: 'Allow only this' })
+  assert.equal(view.findAll({ label: /^Remove / }).length, 0)
+  assert.equal(view.find({ text: 'Clear policy' }), null)
+  await view.press({ label: 'Allow personal' })
   await view.settled()
   assert.deepEqual(sent, [['personal']])
   await view.unmount()
@@ -97,7 +99,7 @@ test('launch button asks the worker for a terminal', async () => {
     },
   })
   const view = await mount(panel, { host })
-  await view.press({ text: 'Open terminal: raygent claude' })
+  await view.press({ text: 'raygent claude' })
   await view.settled()
   assert.deepEqual(launched, { tool: 'claude' })
   assert.deepEqual(view.errors, [])
@@ -116,7 +118,7 @@ test('Make active asks the worker to select that account', async () => {
     },
   })
   const view = await mount(panel, { host })
-  await view.press({ text: 'Make active' })
+  await view.press({ label: 'Make sendtrack active' })
   await view.settled()
   assert.deepEqual(activated, { id: 'sendtrack' })
   assert.deepEqual(view.errors, [])
@@ -133,7 +135,7 @@ test('a failed request shows the reason and keeps the list', async () => {
     },
   })
   const view = await mount(panel, { host })
-  await view.press({ text: 'Make active' })
+  await view.press({ label: 'Make sendtrack active' })
   await view.settled()
   assert.ok(view.find({ text: /orca CLI is not available/ }))
   assert.ok(view.find({ label: 'personal' }))
